@@ -44,18 +44,41 @@ async function main(){
     app.get('/create-customers', async (req, res) => {
         const query = `SELECT * FROM Companies`
         const [companies] = await connection.execute(query);
+        const [employees] = await connection.execute(`SELECT * FROM Employees`);
 
         res.render('create-customers', {
-            companies
+            companies, 
+            employees
         })
     })
 
     app.post('/create-customers', async (req, res) => {
         const {first_name, last_name, rating, company_id} = req.body;
         const query = `INSERT INTO Customers (first_name, last_name, rating, company_id)
-                        VALUES ("${first_name}", "${last_name}", ${rating}, ${company_id})`;
+                            VALUES (?,?,?,?);`
 
-        const response = await connection.execute(query);
+        const [response] = await connection.execute(query, [first_name, last_name, rating, company_id]);
+
+        // will have id of newly inserted row
+        const insertId = response.insertId;
+
+        const {employees} = req.body;
+        
+        let employeeArray = [];
+
+        if (Array.isArray(employees)) {
+            employeeArray = employees;
+        } else {
+            employeeArray.push(employees)
+        }
+
+        for (let employee_id of employeeArray){
+            const employee_query = `INSERT INTO EmployeeCustomer (employee_id, customer_id) 
+            VALUES (?, ?)`
+
+            await connection.execute(employee_query, [employee_id, insertId]);
+        }
+
         res.redirect('/customers');
     })
 
@@ -63,27 +86,58 @@ async function main(){
     app.get('/update-customers/:customerId', async (req, res) => {
         const {customerId} = req.params;
 
-        const query = `SELECT * FROM Customers WHERE customer_id = ${customerId}`
-        const [customers] = await connection.execute(query);
+        const query = `SELECT * FROM Customers WHERE customer_id = ?`
+        const [customers] = await connection.execute(query, [customerId]);
         const [companies] = await connection.execute(`SELECT * FROM Companies`);
+        const [employees] = await connection.execute(`SELECT * FROM Employees`);
+
+        // get all the employees currently serving the customer
+        const [currentEmployees] = await connection.execute(`SELECT * FROM EmployeeCustomer WHERE customer_id = ?`, [customerId]);
     
+        const employeeIds = currentEmployees.map((e) => {
+            return e.employee_id;
+        })
+
         const customerToUpdate = customers[0];
         res.render('update-customers', {
             customer: customerToUpdate,
-            companies: companies
+            companies,
+            employees,
+            employeeIds
         })
     })
 
     app.post('/update-customers/:customerId', async (req, res) => {
         const {customerId} = req.params;
         const {first_name, last_name, rating, company_id} = req.body;
-        const query = `UPDATE Customers SET first_name="${first_name}",
-                        last_name="${last_name}", 
-                        rating=${rating},
-                        company_id=${company_id}
-                       WHERE customer_id = ${customerId};`
-    
-        await connection.execute(query);
+        const query = `UPDATE Customers SET first_name = ?,
+                        last_name = ?, 
+                        rating = ?,
+                        company_id = ?
+                        WHERE customer_id = ?;`
+
+        await connection.execute(query, [first_name, last_name, rating, company_id, customerId]);
+
+        // update relationship after updating the customer
+        // delete relationship
+        await connection.execute(`DELETE FROM EmployeeCustomer WHERE customer_id = ?;`, [customerId]);
+
+        // add new relationship
+        const {employees} = req.body;
+        
+        let employeeArray = [];
+
+        if (Array.isArray(employees)) {
+            employeeArray = employees;
+        } else {
+            employeeArray.push(employees)
+        }
+
+        for (let employee_id of employeeArray){
+            await connection.execute(`INSERT INTO EmployeeCustomer (employee_id, customer_id) 
+                                        VALUES (?, ?)`, [employee_id, customerId])
+        }
+
         res.redirect('/customers');
     })
 
@@ -91,7 +145,7 @@ async function main(){
     // DELETE
     app.get('/delete-customers/:customerId', async (req, res) => {
         const {customerId} = req.params;
-        const [customers] = await connection.execute(`SELECT * FROM Customers WHERE customer_id = ${customerId}`);
+        const [customers] = await connection.execute(`SELECT * FROM Customers WHERE customer_id = ?;`, [customerId]);
         const customerToDelete = customers[0];
 
         res.render('delete-customers', {
@@ -103,15 +157,15 @@ async function main(){
         const {customerId} = req.params;
 
         // check if the customerId in a relationship with an employee
-        const checkCustomerQuery = `SELECT * FROM EmployeeCustomer WHERE customer_id = ${customerId}`;
-        const [involved] = await connection.execute(checkCustomerQuery);
+        const checkCustomerQuery = `SELECT * FROM EmployeeCustomer WHERE customer_id = ?;`
+        const [involved] = await connection.execute(checkCustomerQuery, [customerId]);
         if (involved.length > 0) {
             res.send("Unable to delete because the customer is in a sales relationship of an employee");
             return;
         }
     
-        const query = `DELETE FROM Customers C WHERE C.customer_id = ${customerId}`;
-        await connection.execute(query);
+        const query = `DELETE FROM Customers C WHERE C.customer_id = ?;`
+        await connection.execute(query, [customerId]);
         res.redirect('/customers')
     })
     
