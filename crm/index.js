@@ -31,14 +31,48 @@ async function main(){
 
 
     // READ
-    app.get('/customers', async (req, res) => {
-        const query = `SELECT C.*, C1.name AS company_name FROM Customers C LEFT JOIN Companies C1 ON C.company_id = C1.company_id ORDER BY C.first_name`;
-        const [customers] = await connection.execute(query);
+    // app.get('/customers', async (req, res) => {
+    //     const query = `SELECT C.*, C1.name AS company_name FROM Customers C LEFT JOIN Companies C1 ON C.company_id = C1.company_id ORDER BY C.first_name`;
+    //     const [customers] = await connection.execute(query);
 
-        res.render('customers', {
-            customers
-        })
-    })
+    //     res.render('customers', {
+    //         customers
+    //     })
+    // })
+
+    app.get('/customers', async (req, res) => {
+        // example: /customers?firstName=Alice&?lastName=Johnson
+        const { firstName, lastName, companyName } = req.query;
+    
+        let query = `SELECT C.*, C1.name AS company_name FROM Customers C LEFT JOIN Companies C1 ON C.company_id = C1.company_id`;
+    
+        const whereClauses = [];
+    
+        if (firstName) {
+            whereClauses.push(`C.first_name = '${firstName}'`);
+        }
+        if (lastName) {
+            whereClauses.push(`C.last_name = '${lastName}'`);
+        }
+        if (companyName) {
+            whereClauses.push(`C1.name = '${companyName}'`);
+        }
+    
+        if (whereClauses.length > 0) {
+            query += ` WHERE ${whereClauses.join(' AND ')}`;
+        }
+    
+        query += ` ORDER BY C.first_name`;
+    
+        try {
+            const [customers] = await connection.execute(query);
+            res.render('customers', { customers });
+        } catch (error) {
+            console.error('Error fetching customers:', error);
+            res.status(500).send('Error fetching customers');
+        }
+    });
+    
 
     // CREATE
     app.get('/create-customers', async (req, res) => {
